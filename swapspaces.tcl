@@ -9,84 +9,196 @@
 
 package require Tk
 
+## global variables:
+
+# Current list of windows
+set windowlist [list]
+
+# Current list of projects
+set projectlist [dict create]
+
+set projectfile "~/.swapspacesprojects.tcl"
+
+# Try loading projectlist from here:
+catch {
+    source $projectfile
+}
+
+# Desktop list
+set desktops []
+foreach d [split [exec wmctrl -d] "\n"] {
+    lappend desktops [lindex $d 0]
+}
+
+
 # desktops --
 #
 #	Return the number of virtual desktops.
 
 proc desktops {} {
-    return [llength [split [exec wmctrl -d] "\n"]]
+    return
 }
 
 # swapspaces --
 #
 #	Do the actual swap.
 
-proc swapspaces {source dest} {
-    set sourcelist {}
-    set destlist {}
-
-    set oput [open "|wmctrl -l"]
-    while { ![eof $oput] } {
-	gets $oput line
-	set winfo [split $line]
-	set id [lindex $winfo 0]
-	set desktop [lindex $winfo 2]
-
-	if { $desktop == $source } {
-	    lappend sourcelist $id
-	} elseif { $desktop == $dest } {
-	    lappend destlist $id
-	}
-    }
-
-    foreach id $destlist {
-	exec wmctrl -ir $id -t $source
-    }
-
-    foreach id $sourcelist {
+proc swapspaces {ids dest} {
+    foreach id $ids {
 	exec wmctrl -ir $id -t $dest
     }
-    close $oput
 }
 
-# Swap --
-#
-#	Respond to the swap button.
+proc WindowList {} {
+    set windowlist {}
 
-proc Swap {a b} {
-    set ai [$a get]
-    set bi [$b get]
-    if { [catch {
-	incr ai -1
-	incr bi -1
-    } err] } {
-	$a set 1
-	$b set 1
+    set oput [open "|wmctrl -lp"]
+    while { ![eof $oput] } {
+	gets $oput line
+	if { $line eq "" } continue
+	lappend windowlist [regsub -all " +" $line " "]
     }
-    swapspaces $ai $bi
+    return $windowlist
 }
 
-ttk::label .swap -text "Swap Desktops" -font TkHeadingFont
-ttk::label .deska -text "Desktop A:"
-ttk::label .deskb -text "Desktop B:"
-
-set desktops [desktops]
-for {set i 1} {$i < $desktops + 1} {incr i} {
-    lappend dtlist $i
+proc UpdateWindowList {} {
+    global windowlist
+    set windowlist [WindowList]
 }
 
-set a [ttk::combobox .a -width 3 -values $dtlist]
-set b [ttk::combobox .b -width 3 -values $dtlist]
-$a current 0
-$b current [expr {$desktops / 2 - 1}]
-set button [ttk::button .swapbutton -text "Swap" -command [list Swap $a $b]]
+proc WorkspaceWindowInfo {var workspacenum} {
+    global windowlist
+    set reslist {}
 
-grid .swap -
-grid .deska .a -sticky ew
-grid .deskb .b -sticky ew
+    set mypid [pid]
 
-grid configure .deska -ipadx 15 -ipady 8
-grid configure .deskb -ipadx 15 -ipady 8
+    foreach line $windowlist {
+	set winfo [split $line]
+	set id [lindex $winfo 0]
+	set desktop [lindex $winfo 1]
+	set pid [lindex $winfo 2]
 
-grid $button - -sticky ew -ipady 8
+	if { $pid == $mypid } {
+	    continue
+	}
+
+	set comp [lindex $winfo 3]
+	set name [lrange $winfo 4 end]
+	# puts "$id $desktop -- $name"
+
+	if { $desktop == $workspacenum } {
+	    lappend reslist [set $var]
+	}
+    }
+    return $reslist
+}
+
+
+# Stash --
+#
+#	Hide the windows away and save which ones were hidden where.
+
+proc Stash {srcdeskselector dstdeskselector groupname} {
+    set dst [$dstdeskselector get]
+    set src [$srcdeskselector get]
+    set groupname [$groupname get]
+
+    puts "Moving $groupname from $src to $dst"
+
+    # Has to have a name.
+    if { $groupname eq "" } {
+	# FIXME - error message.
+	return
+    }
+
+    set ids [FetchIdsFromProjectList $groupname $src]
+    UpdateProjectList $groupname $dst $ids
+    SaveProjectList
+    # Then, move them.
+
+    swapspaces $ids $dst
+
+    # Now update the widgets
+    $dstdeskselector set $src
+    $srcdeskselector set $dst
+}
+
+proc FetchIdsFromProjectList {groupname src} {
+    global projectlist
+
+    # If we already have a list of id's, use that.
+    if { [dict exists $projectlist $groupname] } {
+	return [lindex [dict get $projectlist $groupname] 1]
+    } else {
+	return [WorkspaceWindowInfo id $src]
+    }
+}
+
+proc UpdateProjectList {groupname currentdesktop ids} {
+    global projectlist
+
+    dict set projectlist $groupname [list $currentdesktop $ids]
+}
+
+proc CurrentProjectDesktop {name} {
+    if { $name eq "" } {
+	return 0
+    }
+
+    global projectlist
+    return [lindex [dict get $projectlist $name] 0]
+}
+
+proc SaveProjectList {} {
+    global projectfile
+    global projectlist
+    set fl [open $projectfile w]
+    puts $fl "set projectlist [list $projectlist]"
+    close $fl
+}
+
+UpdateWindowList
+
+set currentdesktop 0
+
+proc GuiGroup {name i} {
+    global desktops
+
+    ttk::label .destl$i -text "Destination: " -font TkHeadingFont
+    ttk::label .sourcel$i -text "Source: " -font TkHeadingFont
+    ttk::label .windows$i -text "Windows: " -font TkHeadingFont
+
+    # FIXME - names from ids
+    ttk::combobox .windowlist$i -values [WorkspaceWindowInfo name 0]
+    ttk::label .groupnamel$i -text "Group Name: " -font TkHeadingFont
+    set groupname [ttk::entry .groupname$i]
+    .groupname$i insert 0 $name
+
+
+    set current [CurrentProjectDesktop $name]
+
+    set srcselector [ttk::combobox .sourceselector$i -width 3 -values $desktops]
+    $srcselector current $current
+
+    set destselector [ttk::combobox .destselector$i -width 3 -values $desktops]
+    # FIXME hardcoded 4
+    $destselector current [expr {$current == 0 ? 4 : 0}]
+
+    set button [ttk::button .swapbutton$i -text "Move" -command [list Stash $srcselector $destselector $groupname]]
+
+    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i .destl$i .destselector$i .swapbutton$i -sticky ew
+}
+
+
+GuiGroup "" 0
+set i 1
+foreach name [dict keys $projectlist] {
+    GuiGroup $name $i
+    incr i
+}
+
+
+
+#grid configure .deska -ipadx 15 -ipady 8
+
 grid columnconfigure . 0 -weight 1
