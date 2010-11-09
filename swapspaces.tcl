@@ -1,5 +1,12 @@
 #!/usr/bin/tclsh8.5
 
+# Swapspaces.tcl, copyright 2009, 2010 David N. Welton
+# <davidw@dedasys.com> - http://www.dedasys.com
+
+# This program lets you swap different virtual workspaces around by
+# swapping the contents of two of them.  It requires the wmctrl
+# package.
+
 package require Tk
 
 # desktops --
