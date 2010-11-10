@@ -1,0 +1,25 @@
+# swapspaces.tcl
+
+Swapspaces is a way to better manage my virtual desktops.
+
+For web projects, for instance, I'll often have Emacs open with a
+variety of rxvt's, for various things, such as Rails'
+./script/console, ./script/server, a shell to manipulate files with,
+and maybe a few others for various things.
+
+When I want to swap out some work for another client, or for my own
+things, it'd be nice to instantaneously swap out the whole workspace -
+emacs, rxvt's and all.  This program lets me do that.
+
+It works like so:
+
+1) Launch it.
+
+2) Give the workspace a name.
+
+3) Click 'refresh window list'
+
+4) Make sure the source and destination are correct.
+
+5) Hit 'move'.  Zoom, and away they go!  You can get them back by
+   hitting 'move' again.
