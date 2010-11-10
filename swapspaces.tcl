@@ -18,6 +18,7 @@ set projectfile "~/.swapspacesprojects.tcl"
 
 # Current list of projects
 set projectlist [dict create]
+set defaultdestination 4
 
 # Try loading projectlist from here:
 catch {
@@ -37,7 +38,7 @@ foreach d [split [exec wmctrl -d] "\n"] {
 
 proc swapspaces {ids dest} {
     foreach id $ids {
-	puts "wmctrl -ir $id -t $dest"
+	# puts "wmctrl -ir $id -t $dest"
 	exec wmctrl -ir $id -t $dest
     }
 }
@@ -91,20 +92,17 @@ proc WorkspaceWindowInfo {var workspacenum} {
     global windowlist
     set reslist {}
 
-    set myid [wm frame .]
+    set mypid [pid]
 
     foreach line $windowlist {
 	set winfo [split $line]
 	set id [lindex $winfo 0]
 	set desktop [lindex $winfo 1]
-	set pid [lindex $winfo 2]
+	set wpid [lindex $winfo 2]
 
-	# puts "$id $myid [winfo id .]"
-
-	# if { $id == $myid } {
-	#     puts "match!"
-	#     continue
-	# }
+	if { $mypid == $wpid } {
+	    continue
+	}
 
 	set comp [lindex $winfo 3]
 	set name [lrange $winfo 4 end]
@@ -128,7 +126,7 @@ proc Stash {srcdeskselector dstdeskselector groupname} {
     set src [$srcdeskselector get]
     set groupname [$groupname get]
 
-    puts "Moving $groupname from $src to $dst"
+    # puts "Moving $groupname from $src to $dst"
 
     # Has to have a name.
     if { $groupname eq "" } {
@@ -160,9 +158,9 @@ proc FetchIdsFromProjectList {groupname} {
 #	Store information about project $groupname.
 
 proc UpdateProjectList {groupname currentdesktop ids} {
-    puts "Adding $ids to $groupname"
+    #puts "Adding $ids to $groupname"
     dict set ::projectlist $groupname [list $currentdesktop $ids]
-    puts $::projectlist
+    #puts $::projectlist
 }
 
 # CurrentProjectDesktop --
@@ -184,8 +182,10 @@ proc CurrentProjectDesktop {name} {
 proc SaveProjectList {} {
     global projectfile
     global projectlist
+    global defaultdestination
     set fl [open $projectfile w]
     puts $fl "set projectlist [list $projectlist]"
+    puts $fl "set defaultdestination $defaultdestination"
     close $fl
 }
 
@@ -196,14 +196,13 @@ proc SaveProjectList {} {
 proc RefreshWindowList {srcdeskselector groupname} {
     set name [$groupname get]
     set src [$srcdeskselector get]
+    $groupname state readonly
+
+    # puts "$src == [CurrentDesktop]"
 
     if { $src == [CurrentDesktop] } {
 	UpdateWindowList
-	set currentlist [WorkspaceWindowInfo id $src]
-
-	puts "currentlist is $currentlist"
-
-	UpdateProjectList $name $src $currentlist
+	UpdateProjectList $name $src [WorkspaceWindowInfo id $src]
 	SaveProjectList
     }
 }
@@ -212,8 +211,11 @@ proc RefreshWindowList {srcdeskselector groupname} {
 #
 #	Create a group of gui controls for a specific
 
-proc GuiGroup {name i} {
+proc GuiGroup {name} {
     global desktops
+    global rowcounter
+    global defaultdestination
+    set i $rowcounter
 
     ttk::label .destl$i -text "Destination: " -font TkHeadingFont
     ttk::label .sourcel$i -text "Source: " -font TkHeadingFont
@@ -223,37 +225,42 @@ proc GuiGroup {name i} {
     ttk::combobox .windowlist$i -values [WorkspaceWindowInfo name 0]
     ttk::label .groupnamel$i -text "Group Name: " -font TkHeadingFont
     set groupname [ttk::entry .groupname$i]
-    .groupname$i insert 0 $name
-
+    $groupname insert 0 $name
+    if { $name ne "" } {
+	$groupname state readonly
+    }
 
     set current [CurrentProjectDesktop $name]
 
-    set srcselector [ttk::combobox .sourceselector$i -width 3 -values $desktops]
+    set srcselector [ttk::combobox .sourceselector$i -width 3 -values $desktops -state readonly]
     $srcselector current $current
 
-    set destselector [ttk::combobox .destselector$i -width 3 -values $desktops]
-    # FIXME hardcoded 4
-    $destselector current [expr {$current == 0 ? 4 : 0}]
+    set destselector [ttk::combobox .destselector$i -width 3 -values $desktops -state readonly]
+    $destselector current [expr {$current == 0 ? $defaultdestination : 0}]
 
     set button [ttk::button .swapbutton$i -text "Move" -command [list Stash $srcselector $destselector $groupname]]
     set refresh [ttk::button .refreshb$i -text "Refresh Window List" -command [list RefreshWindowList $srcselector $groupname]]
 
-    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i .destl$i .destselector$i $button $refresh -sticky ew
+    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i \
+	.destl$i .destselector$i $refresh $button -sticky ew
+    incr rowcounter
 }
 
+wm client . [info hostname]
 UpdateWindowList
 
-set i 0
+set newgroup [ttk::button .newgroup -text "New Group from current Desktop" -command [list NewGroup ""]]
+grid $newgroup - - - - - - - - - - -sticky ew
+
+set rowcounter 0
 
 # Create a default group if there are none.
 if { [dict size $projectlist] == 0 } {
-    GuiGroup "" $i
-    incr i
+    GuiGroup ""
 }
 
 foreach name [dict keys $projectlist] {
-    GuiGroup $name $i
-    incr i
+    GuiGroup $name
 }
 
 #grid configure .deska -ipadx 15 -ipady 8
