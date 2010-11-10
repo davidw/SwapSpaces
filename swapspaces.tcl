@@ -225,6 +225,7 @@ proc GuiGroup {name} {
 
     # FIXME - names from ids
     set windowcombo [ttk::combobox .windowlist$i -values [WorkspaceWindowInfo name 0]]
+    $windowcombo current 0
     ttk::label .groupnamel$i -text "Group Name: " -font TkHeadingFont
     set groupname [ttk::entry .groupname$i]
     $groupname insert 0 $name
@@ -252,7 +253,7 @@ wm client . [info hostname]
 UpdateWindowList
 
 set newgroup [ttk::button .newgroup -text "New Group from current Desktop" -command [list NewGroup ""]]
-grid $newgroup - - - - - - - - - - -sticky ew
+grid $newgroup - -sticky ew
 
 set rowcounter 0
 

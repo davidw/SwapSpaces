@@ -23,3 +23,12 @@ It works like so:
 
 5) Hit 'move'.  Zoom, and away they go!  You can get them back by
    hitting 'move' again.
+
+When you've stashed a workspace, you can create a new one from the
+current workspace with the "New group from current desktop" button.
+
+Yes, it's quick, dirty and a bit ugly.  Patches welcome!
+
+David N. Welton
+davidw@dedasys.com
+http://www.dedasys.com
