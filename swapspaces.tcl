@@ -193,12 +193,14 @@ proc SaveProjectList {} {
 #
 #	Adds all windows on the current desktop to the list
 
-proc RefreshWindowList {srcdeskselector groupname} {
+proc RefreshWindowList {srcdeskselector groupname windowcombo} {
     set name [$groupname get]
     set src [$srcdeskselector get]
     $groupname state readonly
 
     # puts "$src == [CurrentDesktop]"
+
+    $windowcombo configure -values [WorkspaceWindowInfo name $src]
 
     if { $src == [CurrentDesktop] } {
 	UpdateWindowList
@@ -222,7 +224,7 @@ proc GuiGroup {name} {
     ttk::label .windows$i -text "Windows: " -font TkHeadingFont
 
     # FIXME - names from ids
-    ttk::combobox .windowlist$i -values [WorkspaceWindowInfo name 0]
+    set windowcombo [ttk::combobox .windowlist$i -values [WorkspaceWindowInfo name 0]]
     ttk::label .groupnamel$i -text "Group Name: " -font TkHeadingFont
     set groupname [ttk::entry .groupname$i]
     $groupname insert 0 $name
@@ -239,9 +241,9 @@ proc GuiGroup {name} {
     $destselector current [expr {$current == 0 ? $defaultdestination : 0}]
 
     set button [ttk::button .swapbutton$i -text "Move" -command [list Stash $srcselector $destselector $groupname]]
-    set refresh [ttk::button .refreshb$i -text "Refresh Window List" -command [list RefreshWindowList $srcselector $groupname]]
+    set refresh [ttk::button .refreshb$i -text "Refresh Window List" -command [list RefreshWindowList $srcselector $groupname $windowcombo]]
 
-    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i \
+    grid .groupnamel$i .groupname$i .windows$i $windowcombo .sourcel$i .sourceselector$i \
 	.destl$i .destselector$i $refresh $button -sticky ew
     incr rowcounter
 }
