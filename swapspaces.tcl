@@ -14,10 +14,10 @@ package require Tk
 # Current list of windows
 set windowlist [list]
 
+set projectfile "~/.swapspacesprojects.tcl"
+
 # Current list of projects
 set projectlist [dict create]
-
-set projectfile "~/.swapspacesprojects.tcl"
 
 # Try loading projectlist from here:
 catch {
@@ -31,23 +31,36 @@ foreach d [split [exec wmctrl -d] "\n"] {
 }
 
 
-# desktops --
-#
-#	Return the number of virtual desktops.
-
-proc desktops {} {
-    return
-}
-
 # swapspaces --
 #
 #	Do the actual swap.
 
 proc swapspaces {ids dest} {
     foreach id $ids {
+	puts "wmctrl -ir $id -t $dest"
 	exec wmctrl -ir $id -t $dest
     }
 }
+
+# CurrentDesktop --
+#
+#	Returns the number of the current desktop
+
+proc CurrentDesktop {} {
+    set oput [open "|wmctrl -d"]
+    while { ![eof $oput] } {
+	gets $oput line
+	# Find the line with the asterisk.
+	if { [regexp {^(\d*) +\*} $line match desktop] } {
+	    close $oput
+	    return $desktop
+	}
+    }
+    close $oput
+    return 0
+}
+
+# Fetch list of windows
 
 proc WindowList {} {
     set windowlist {}
@@ -61,16 +74,24 @@ proc WindowList {} {
     return $windowlist
 }
 
+# Update the system's information.
+
 proc UpdateWindowList {} {
     global windowlist
     set windowlist [WindowList]
 }
 
+# WorkspaceWindowInfo --
+#
+#	Takes a variable name $var and a workspacenum and returns
+#	information about the windows there - you can get names, ids
+#	pids or whatever.
+
 proc WorkspaceWindowInfo {var workspacenum} {
     global windowlist
     set reslist {}
 
-    set mypid [pid]
+    set myid [wm frame .]
 
     foreach line $windowlist {
 	set winfo [split $line]
@@ -78,9 +99,12 @@ proc WorkspaceWindowInfo {var workspacenum} {
 	set desktop [lindex $winfo 1]
 	set pid [lindex $winfo 2]
 
-	if { $pid == $mypid } {
-	    continue
-	}
+	# puts "$id $myid [winfo id .]"
+
+	# if { $id == $myid } {
+	#     puts "match!"
+	#     continue
+	# }
 
 	set comp [lindex $winfo 3]
 	set name [lrange $winfo 4 end]
@@ -97,6 +121,7 @@ proc WorkspaceWindowInfo {var workspacenum} {
 # Stash --
 #
 #	Hide the windows away and save which ones were hidden where.
+#	This is where most of the actual work is.
 
 proc Stash {srcdeskselector dstdeskselector groupname} {
     set dst [$dstdeskselector get]
@@ -111,10 +136,7 @@ proc Stash {srcdeskselector dstdeskselector groupname} {
 	return
     }
 
-    set ids [FetchIdsFromProjectList $groupname $src]
-    UpdateProjectList $groupname $dst $ids
-    SaveProjectList
-    # Then, move them.
+    set ids [FetchIdsFromProjectList $groupname]
 
     swapspaces $ids $dst
 
@@ -123,31 +145,41 @@ proc Stash {srcdeskselector dstdeskselector groupname} {
     $srcdeskselector set $dst
 }
 
-proc FetchIdsFromProjectList {groupname src} {
-    global projectlist
+# FetchIdsFromProjectList --
+#
+#	Given a src workspace and a group name, use the stored dict
+#	information if it's present, otherwise fetch window
+#	information.
 
-    # If we already have a list of id's, use that.
-    if { [dict exists $projectlist $groupname] } {
-	return [lindex [dict get $projectlist $groupname] 1]
-    } else {
-	return [WorkspaceWindowInfo id $src]
-    }
+proc FetchIdsFromProjectList {groupname} {
+    return [lindex [dict get $::projectlist $groupname] 1]
 }
+
+# UpdateProjectList --
+#
+#	Store information about project $groupname.
 
 proc UpdateProjectList {groupname currentdesktop ids} {
-    global projectlist
-
-    dict set projectlist $groupname [list $currentdesktop $ids]
+    puts "Adding $ids to $groupname"
+    dict set ::projectlist $groupname [list $currentdesktop $ids]
+    puts $::projectlist
 }
+
+# CurrentProjectDesktop --
+#
+#	Get the stored desktop for the current project.
 
 proc CurrentProjectDesktop {name} {
     if { $name eq "" } {
 	return 0
     }
 
-    global projectlist
-    return [lindex [dict get $projectlist $name] 0]
+    return [lindex [dict get $::projectlist $name] 0]
 }
+
+# SaveProjectList --
+#
+#	Save the projectlist to a file.
 
 proc SaveProjectList {} {
     global projectfile
@@ -157,9 +189,28 @@ proc SaveProjectList {} {
     close $fl
 }
 
-UpdateWindowList
+# RefreshWindowList --
+#
+#	Adds all windows on the current desktop to the list
 
-set currentdesktop 0
+proc RefreshWindowList {srcdeskselector groupname} {
+    set name [$groupname get]
+    set src [$srcdeskselector get]
+
+    if { $src == [CurrentDesktop] } {
+	UpdateWindowList
+	set currentlist [WorkspaceWindowInfo id $src]
+
+	puts "currentlist is $currentlist"
+
+	UpdateProjectList $name $src $currentlist
+	SaveProjectList
+    }
+}
+
+# GuiGroup --
+#
+#	Create a group of gui controls for a specific
 
 proc GuiGroup {name i} {
     global desktops
@@ -185,19 +236,25 @@ proc GuiGroup {name i} {
     $destselector current [expr {$current == 0 ? 4 : 0}]
 
     set button [ttk::button .swapbutton$i -text "Move" -command [list Stash $srcselector $destselector $groupname]]
+    set refresh [ttk::button .refreshb$i -text "Refresh Window List" -command [list RefreshWindowList $srcselector $groupname]]
 
-    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i .destl$i .destselector$i .swapbutton$i -sticky ew
+    grid .groupnamel$i .groupname$i .windows$i .windowlist$i .sourcel$i .sourceselector$i .destl$i .destselector$i $button $refresh -sticky ew
 }
 
+UpdateWindowList
 
-GuiGroup "" 0
-set i 1
+set i 0
+
+# Create a default group if there are none.
+if { [dict size $projectlist] == 0 } {
+    GuiGroup "" $i
+    incr i
+}
+
 foreach name [dict keys $projectlist] {
     GuiGroup $name $i
     incr i
 }
-
-
 
 #grid configure .deska -ipadx 15 -ipady 8
 
