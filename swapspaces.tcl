@@ -252,7 +252,7 @@ proc GuiGroup {name} {
 wm client . [info hostname]
 UpdateWindowList
 
-set newgroup [ttk::button .newgroup -text "New Group from current Desktop" -command [list NewGroup ""]]
+set newgroup [ttk::button .newgroup -text "New Group from current Desktop" -command [list GuiGroup ""]]
 grid $newgroup - -sticky ew
 
 set rowcounter 0
