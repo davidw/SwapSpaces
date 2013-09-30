@@ -1,6 +1,6 @@
 #!/usr/bin/tclsh8.5
 
-# Swapspaces.tcl, copyright 2009, 2010 David N. Welton
+# Swapspaces.tcl, copyright 2009, 2010, 2013 David N. Welton
 # <davidw@dedasys.com> - http://www.dedasys.com
 
 # This program lets you swap different virtual workspaces around by
@@ -20,6 +20,15 @@ set projectfile "~/.swapspacesprojects.tcl"
 set projectlist [dict create]
 set defaultdestination 4
 
+set debug_level 0
+
+proc debug {str} {
+    global debug_level
+    if { $debug_level } {
+        puts $str
+    }
+}
+
 # Try loading projectlist from here:
 catch {
     source $projectfile
@@ -31,14 +40,13 @@ foreach d [split [exec wmctrl -d] "\n"] {
     lappend desktops [lindex $d 0]
 }
 
-
 # swapspaces --
 #
 #	Do the actual swap.
 
 proc swapspaces {ids dest} {
     foreach id $ids {
-	# puts "wmctrl -ir $id -t $dest"
+	debug "wmctrl -ir $id -t $dest"
 	exec wmctrl -ir $id -t $dest
     }
 }
@@ -54,10 +62,12 @@ proc CurrentDesktop {} {
 	# Find the line with the asterisk.
 	if { [regexp {^(\d*) +\*} $line match desktop] } {
 	    close $oput
+            debug "current desktop: $desktop"
 	    return $desktop
 	}
     }
     close $oput
+    debug "current desktop (default): 0"
     return 0
 }
 
@@ -116,17 +126,20 @@ proc WorkspaceWindowInfo {var workspacenum} {
 }
 
 
-# Stash --
+# HideRestore --
 #
 #	Hide the windows away and save which ones were hidden where.
 #	This is where most of the actual work is.
 
-proc Stash {srcdeskselector dstdeskselector groupname} {
-    set dst [$dstdeskselector get]
-    set src [$srcdeskselector get]
+proc HideRestore {groupname} {
+    global srcselector
+    global destselector
+
+    set dst [$destselector get]
+    set src [$srcselector get]
     set groupname [$groupname get]
 
-    # puts "Moving $groupname from $src to $dst"
+    debug "Moving $groupname from $src to $dst"
 
     # Has to have a name.
     if { $groupname eq "" } {
@@ -136,11 +149,14 @@ proc Stash {srcdeskselector dstdeskselector groupname} {
 
     set ids [FetchIdsFromProjectList $groupname]
 
-    swapspaces $ids $dst
+    if { [CurrentProjectDesktop $groupname] == $dst } {
+        set target $src
+    } else {
+        set target $dst
+    }
 
-    # Now update the widgets
-    $dstdeskselector set $src
-    $srcdeskselector set $dst
+    swapspaces $ids $target
+    UpdateProjectList $groupname $target $ids
 }
 
 # FetchIdsFromProjectList --
@@ -160,7 +176,7 @@ proc FetchIdsFromProjectList {groupname} {
 proc UpdateProjectList {groupname currentdesktop ids} {
     #puts "Adding $ids to $groupname"
     dict set ::projectlist $groupname [list $currentdesktop $ids]
-    #puts $::projectlist
+    debug "update project list $::projectlist"
 }
 
 # CurrentProjectDesktop --
@@ -183,6 +199,9 @@ proc SaveProjectList {} {
     global projectfile
     global projectlist
     global defaultdestination
+
+    debug "project list: $projectlist"
+
     set fl [open $projectfile w]
     puts $fl "set projectlist [list $projectlist]"
     puts $fl "set defaultdestination $defaultdestination"
@@ -193,14 +212,18 @@ proc SaveProjectList {} {
 #
 #	Adds all windows on the current desktop to the list
 
-proc RefreshWindowList {srcdeskselector groupname windowcombo} {
+proc RefreshWindowList {groupname windowcombo} {
+    global srcselector
+
     set name [$groupname get]
-    set src [$srcdeskselector get]
+    set src [$srcselector get]
     $groupname state readonly
 
     # puts "$src == [CurrentDesktop]"
 
     $windowcombo configure -values [WorkspaceWindowInfo name $src]
+
+    debug "src is $src"
 
     if { $src == [CurrentDesktop] } {
 	UpdateWindowList
@@ -219,8 +242,6 @@ proc GuiGroup {name} {
     global defaultdestination
     set i $rowcounter
 
-    ttk::label .destl$i -text "Destination: " -font TkHeadingFont
-    ttk::label .sourcel$i -text "Source: " -font TkHeadingFont
     ttk::label .windows$i -text "Windows: " -font TkHeadingFont
 
     # FIXME - names from ids
@@ -233,19 +254,12 @@ proc GuiGroup {name} {
 	$groupname state readonly
     }
 
-    set current [CurrentProjectDesktop $name]
+    set button [ttk::button .swapbutton$i -text "Move" \
+                    -command [list HideRestore $groupname]]
+    set refresh [ttk::button .refreshb$i -text "Refresh Window List" \
+                     -command [list RefreshWindowList $groupname $windowcombo]]
 
-    set srcselector [ttk::combobox .sourceselector$i -width 3 -values $desktops -state readonly]
-    $srcselector current $current
-
-    set destselector [ttk::combobox .destselector$i -width 3 -values $desktops -state readonly]
-    $destselector current [expr {$current == 0 ? $defaultdestination : 0}]
-
-    set button [ttk::button .swapbutton$i -text "Move" -command [list Stash $srcselector $destselector $groupname]]
-    set refresh [ttk::button .refreshb$i -text "Refresh Window List" -command [list RefreshWindowList $srcselector $groupname $windowcombo]]
-
-    grid .groupnamel$i .groupname$i .windows$i $windowcombo .sourcel$i .sourceselector$i \
-	.destl$i .destselector$i $refresh $button -sticky ew
+    grid .groupnamel$i .groupname$i .windows$i $windowcombo $refresh $button -sticky ew
     incr rowcounter
 }
 
@@ -253,7 +267,17 @@ wm client . [info hostname]
 UpdateWindowList
 
 set newgroup [ttk::button .newgroup -text "New Group from current Desktop" -command [list GuiGroup ""]]
-grid $newgroup - -sticky ew
+
+set destl [ttk::label .destl -text "Destination: " -font TkHeadingFont]
+
+set sourcel [ttk::label .sourcel -text "Source: " -font TkHeadingFont]
+set srcselector [ttk::combobox .sourceselector -width 3 -values $desktops -state readonly]
+$srcselector current 0
+
+set destselector [ttk::combobox .destselector -width 3 -values $desktops -state readonly]
+$destselector current $defaultdestination
+
+grid $newgroup $destl $destselector $sourcel $srcselector -sticky ew
 
 set rowcounter 0
 
